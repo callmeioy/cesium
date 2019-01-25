@@ -219,6 +219,7 @@ define([
         this._statisticsLastRender = new Cesium3DTilesetStatistics();
         this._statisticsLastPick = new Cesium3DTilesetStatistics();
         this._statisticsLastAsync = new Cesium3DTilesetStatistics();
+        this._statisticsLastShadow = new Cesium3DTilesetStatistics();
 
         this._tilesLoaded = false;
         this._initialTilesLoaded = false;
@@ -2001,11 +2002,13 @@ define([
         var isRender = passes.render;
         var isPick = passes.pick;
         var isAsync = passes.asynchronous;
+        var isShadow = passes.shadow;
+        var isOffscreen = passes.offscreen;
 
         var statistics = tileset._statistics;
         statistics.clear();
 
-        if (tileset.dynamicScreenSpaceError) {
+        if (!isOffscreen && tileset.dynamicScreenSpaceError) {
             updateDynamicScreenSpaceError(tileset, frameState);
         }
 
@@ -2017,13 +2020,15 @@ define([
 
         var ready;
 
-        if (isAsync) {
+        if (isShadow) {
+            ready = Cesium3DTilesetShadowTraversal.selectTiles(tileset, frameState);
+        } else if (isAsync) {
             ready = Cesium3DTilesetAsyncTraversal.selectTiles(tileset, frameState);
         } else {
             ready = Cesium3DTilesetTraversal.selectTiles(tileset, frameState);
         }
 
-        if (isRender || isAsync) {
+        if (isRender || isAsync || isShadow) {
             requestTiles(tileset);
         }
 
@@ -2053,7 +2058,11 @@ define([
         }
 
         // Update last statistics
-        var statisticsLast = isAsync ? tileset._statisticsLastAsync : (isPick ? tileset._statisticsLastPick : tileset._statisticsLastRender);
+        var statisticsLast = isShadow ? tileset._statisticsLastShadow : (
+                             isAsync ? tileset._statisticsLastAsync : (
+                             isPick ? tileset._statisticsLastPick :
+                             tileset._statisticsLastRender));
+
         Cesium3DTilesetStatistics.clone(statistics, statisticsLast);
 
         return ready;

@@ -2,19 +2,21 @@ define([
         '../Core/Intersect',
         '../Core/ManagedArray',
         './Cesium3DTileRefine'
-    ], function(
+], function(
         Intersect,
         ManagedArray,
         Cesium3DTileRefine) {
     'use strict';
 
     /**
-     * Traversal that loads all leaves that intersect the camera frustum.
-     * Used to determine ray-tileset intersections during a pickFromRayMostDetailed call.
+     * Traversal that loads tiles in the shadow map culling volume. If a tile that was originally selected
+     * in the main traversal is no longer visible, but is still in the shadow map culling volume, it will be selected here.
+     *
+     * TODO : finish description
      *
      * @private
      */
-    function Cesium3DTilesetAsyncTraversal() {
+    function Cesium3DTilesetShadowTraversal() {
     }
 
     var traversal = {
@@ -22,18 +24,16 @@ define([
         stackMaximumLength : 0
     };
 
-    Cesium3DTilesetAsyncTraversal.selectTiles = function(tileset, frameState) {
+    Cesium3DTilesetShadowTraversal.selectTiles = function(tileset, frameState) {
         tileset._selectedTiles.length = 0;
         tileset._requestedTiles.length = 0;
         tileset._hasMixedContent = false;
-
-        var ready = true;
 
         var root = tileset.root;
         root.updateVisibility(frameState);
 
         if (!isVisible(root)) {
-            return ready;
+            return;
         }
 
         var stack = traversal.stack;
@@ -53,20 +53,14 @@ define([
 
             if (add || (replace && !traverse)) {
                 loadTile(tileset, tile);
+                touchTile(tileset, tile);
                 selectDesiredTile(tileset, tile, frameState);
-
-                if (!hasEmptyContent(tile) && !tile.contentAvailable) {
-                    ready = false;
-                }
             }
 
             visitTile(tileset);
-            touchTile(tileset, tile);
         }
 
         traversal.stack.trim(traversal.stackMaximumLength);
-
-        return ready;
     };
 
     function isVisible(tile) {
@@ -96,7 +90,7 @@ define([
             return true;
         }
 
-        return true; // Keep traversing until a leave is hit
+        return tile.geometricError > 16; // TODO  make this less hardcoded?
     }
 
     function updateAndPushChildren(tileset, tile, stack, frameState) {
@@ -119,8 +113,13 @@ define([
         }
     }
 
-    function touchTile(tileset, tile) {
+    function touchTile(tileset, tile, frameState) {
+        if (tile._touchedFrame === frameState.frameNumber) {
+            // Prevents another pass from touching the frame again
+            return;
+        }
         tileset._cache.touch(tile);
+        tile._touchedFrame = frameState.frameNumber;
     }
 
     function visitTile(tileset) {
@@ -133,5 +132,5 @@ define([
         }
     }
 
-    return Cesium3DTilesetAsyncTraversal;
+    return Cesium3DTilesetShadowTraversal;
 });
