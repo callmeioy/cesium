@@ -2527,6 +2527,10 @@ define([
         }
     }
 
+    function getOffscreenShadowMapCastCommands(scene) {
+
+    }
+
     function executeShadowMapCastCommands(scene) {
         var frameState = scene.frameState;
         var shadowMaps = frameState.shadowState.shadowMaps;
@@ -2556,6 +2560,8 @@ define([
             // Insert the primitive/model commands into the command lists
             var sceneCommands = scene.frameState.commandList;
             insertShadowCastCommands(scene, sceneCommands, shadowMap);
+
+            sceneCommands.length = sceneCommands.length;
 
             for (j = 0; j < numberOfPasses; ++j) {
                 var pass = shadowMap.passes[j];
@@ -3161,6 +3167,7 @@ define([
         }
 
         updateAsyncRayPicks(scene);
+        updateOffscreenShadowCasters(scene);
 
         frameState.creditDisplay.update();
     }
@@ -3800,6 +3807,69 @@ define([
 
     var scratchRight = new Cartesian3();
     var scratchUp = new Cartesian3();
+
+    function updateOffscreenShadowCasters(scene) {
+        var context = scene._context;
+        var uniformState = context.uniformState;
+        var frameState = scene._frameState;
+
+        if (!frameState.shadowState.shadowsEnabled) {
+            return;
+        }
+
+        var offscreenPrimitives = [];
+        var primitives = scene.primitives;
+        var length = primitives.length;
+        for (var i = 0; i < length; ++i) {
+            var primitive = primitives.get(i);
+            if ((primitive instanceof Cesium3DTileset) && primitive.show) {
+                offscreenPrimitives.push(primitive);
+            }
+        }
+        if (offscreenPrimitives.length === 0) {
+            return;
+        }
+
+        var view = scene._pickOffscreenView;
+        scene._view = view;
+
+        var ray = asyncRayPick.ray;
+        var width = asyncRayPick.width;
+        var primitives = asyncRayPick.primitives;
+
+        updateOffscreenCameraFromRay(scene, ray, width, view.camera);
+
+        updateFrameState(scene);
+        frameState.passes.offscreen = true;
+        frameState.passes.asynchronous = true;
+        frameState.cullingVolume =
+
+        uniformState.update(frameState);
+
+        var commandList = frameState.commandList;
+        var commandsLength = commandList.length;
+
+        var ready = true;
+        var primitivesLength = primitives.length;
+        for (var i = 0; i < primitivesLength; ++i) {
+            var primitive = primitives[i];
+            if (primitive.show && scene.primitives.contains(primitive)) {
+                // Only update primitives that are still contained in the scene's primitive collection and are still visible
+                // Update primitives continually until all primitives are ready. This way tiles are never removed from the cache.
+                var primitiveReady = primitive.updateAsync(frameState);
+                ready = (ready && primitiveReady);
+            }
+        }
+
+        // Ignore commands pushed during asynchronous pass
+        commandList.length = commandsLength;
+
+        scene._view = scene._defaultView;
+
+        if (ready) {
+            asyncRayPick.deferred.resolve();
+        }
+    }
 
     function updateOffscreenCameraFromRay(scene, ray, width, camera) {
         var direction = ray.direction;
